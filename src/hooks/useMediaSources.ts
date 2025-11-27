@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { MediaSourceItem } from '../types/media';
 
 let sourceCounter = 1;
@@ -53,12 +53,23 @@ export function useMediaSources() {
   const addVideoFile = (file: File) => {
     const url = URL.createObjectURL(file);
     const id = `video-${sourceCounter++}`;
+    // デフォルトはループONにしておく
     addSource({
       id,
       type: 'video',
       label: file.name,
       fileUrl: url,
+      loop: true,
     });
+  };
+
+  // 動画ループフラグ更新
+  const setVideoLoop = (sourceId: string, loop: boolean) => {
+    setSources(prev =>
+      prev.map(s =>
+        s.id === sourceId && s.type === 'video' ? { ...s, loop } : s,
+      ),
+    );
   };
 
   return {
@@ -66,5 +77,6 @@ export function useMediaSources() {
     startScreenCapture,
     startCamera,
     addVideoFile,
+    setVideoLoop,
   };
 }

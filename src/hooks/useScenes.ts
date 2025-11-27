@@ -57,6 +57,9 @@ export function useScenes() {
       height: 360,
       zIndex: 1,
       opacity: 1,
+      chromaKeyEnabled: false,
+      chromaKeyColor: { r: 0, g: 255, b: 0 },
+      chromaKeyTolerance: 120,
     };
     updateScene(sceneId, scene => ({
       ...scene,

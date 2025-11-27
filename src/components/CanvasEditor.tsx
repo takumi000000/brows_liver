@@ -1,7 +1,6 @@
 import React, {
   useEffect,
   useRef,
-  useState,
 } from 'react';
 import { Rnd } from 'react-rnd';
 import {
@@ -19,6 +18,10 @@ interface Props {
   upsertLayout: (sceneId: string, layout: SourceLayout) => void;
   removeLayout: (sceneId: string, layoutId: string) => void;
   canvasRefForFullscreen?: React.RefObject<HTMLDivElement>;
+
+  // 追加: 選択されたレイアウト
+  selectedLayoutId: string | null;
+  onSelectLayout: (layoutId: string | null) => void;
 }
 
 export const CanvasEditor: React.FC<Props> = ({
@@ -28,22 +31,30 @@ export const CanvasEditor: React.FC<Props> = ({
   upsertLayout,
   removeLayout,
   canvasRefForFullscreen,
+  selectedLayoutId,
+  onSelectLayout,
 }) => {
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
-  // 内部用：クロスフェード管理
-  const [displaySceneIndex, setDisplaySceneIndex] = useState(activeSceneIndex);
-  const [prevSceneIndex, setPrevSceneIndex] = useState<number | null>(null);
+  // クロスフェード用
+  const [displaySceneIndex, setDisplaySceneIndex] = React.useState(
+    activeSceneIndex,
+  );
+  const [prevSceneIndex, setPrevSceneIndex] = React.useState<number | null>(
+    null,
+  );
   const transitionStartRef = useRef<number | null>(null);
-  const transitionDuration = 500; // ms
+  const transitionDuration = 500;
 
   // ソースID -> HTMLVideoElement
   const videoMapRef = useRef<Map<string, HTMLVideoElement>>(new Map());
+  // クロマキー用オフスクリーンキャンバス
+  const offscreenCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const activeScene = scenes[displaySceneIndex];
 
-  // アクティブシーンが変更されたらクロスフェード開始
+  // アクティブシーン切り替えでクロスフェード開始
   useEffect(() => {
     if (activeSceneIndex === displaySceneIndex) return;
     setPrevSceneIndex(displaySceneIndex);
@@ -51,29 +62,36 @@ export const CanvasEditor: React.FC<Props> = ({
     transitionStartRef.current = performance.now();
   }, [activeSceneIndex, displaySceneIndex]);
 
-  // sources から video 要素を準備
+  // sources → video 要素を準備
   useEffect(() => {
     sources.forEach(source => {
-      if (videoMapRef.current.has(source.id)) return;
+      let video = videoMapRef.current.get(source.id);
 
-      const video = document.createElement('video');
-      video.playsInline = true;
-      video.muted = true;
-      video.autoplay = true;
+      if (!video) {
+        video = document.createElement('video');
+        video.playsInline = true;
+        video.muted = true;
+        video.autoplay = true;
 
-      if (source.stream) {
-        video.srcObject = source.stream;
-        video.onloadedmetadata = () => {
-          video.play().catch(err => console.error(err));
-        };
-      } else if (source.fileUrl) {
-        video.src = source.fileUrl;
-        video.onloadedmetadata = () => {
-          video.play().catch(err => console.error(err));
-        };
+        if (source.stream) {
+          video.srcObject = source.stream;
+          video.onloadedmetadata = () => {
+            video?.play().catch(err => console.error(err));
+          };
+        } else if (source.fileUrl) {
+          video.src = source.fileUrl;
+          video.onloadedmetadata = () => {
+            video?.play().catch(err => console.error(err));
+          };
+        }
+
+        videoMapRef.current.set(source.id, video);
       }
 
-      videoMapRef.current.set(source.id, video);
+      // ループ設定を同期
+      if (source.type === 'video') {
+        video.loop = !!source.loop;
+      }
     });
   }, [sources]);
 
@@ -99,7 +117,6 @@ export const CanvasEditor: React.FC<Props> = ({
         progress = Math.min(1, (now - start) / transitionDuration);
         if (progress >= 1) {
           transitionStartRef.current = null;
-          // 終了後 prevScene は不要
           setPrevSceneIndex(null);
         }
       }
@@ -121,7 +138,7 @@ export const CanvasEditor: React.FC<Props> = ({
     return () => cancelAnimationFrame(animationFrameId);
   }, [scenes, displaySceneIndex, prevSceneIndex, sources]);
 
-  // シーン描画
+  // シーン描画（クロマキー対応）
   const drawScene = (
     ctx: CanvasRenderingContext2D,
     scene: Scene,
@@ -141,30 +158,85 @@ export const CanvasEditor: React.FC<Props> = ({
 
       const video = videoMapRef.current.get(source.id);
       if (!video) continue;
-      if (video.readyState < 2) continue; // enough data?
+      if (video.readyState < 2) continue;
 
-      ctx.save();
-      ctx.globalAlpha = sceneAlpha * layout.opacity;
-      ctx.drawImage(
-        video,
-        layout.x,
-        layout.y,
-        layout.width,
-        layout.height,
-      );
-      ctx.restore();
+      const opacity = sceneAlpha * layout.opacity;
+
+      // クロマキーが有効で、動画ソースの時のみ処理
+      if (layout.chromaKeyEnabled && source.type === 'video') {
+        const offscreen =
+          offscreenCanvasRef.current ??
+          (offscreenCanvasRef.current = document.createElement('canvas'));
+
+        offscreen.width = layout.width;
+        offscreen.height = layout.height;
+        const octx = offscreen.getContext('2d');
+        if (!octx) continue;
+
+        octx.clearRect(0, 0, layout.width, layout.height);
+        octx.drawImage(video, 0, 0, layout.width, layout.height);
+
+        const imageData = octx.getImageData(
+          0,
+          0,
+          layout.width,
+          layout.height,
+        );
+        const data = imageData.data;
+
+        const color = layout.chromaKeyColor ?? { r: 0, g: 255, b: 0 };
+        const tolerance = layout.chromaKeyTolerance ?? 120;
+        const tolSq = tolerance * tolerance;
+
+        for (let i = 0; i < data.length; i += 4) {
+          const r = data[i];
+          const g = data[i + 1];
+          const b = data[i + 2];
+
+          const dr = r - color.r;
+          const dg = g - color.g;
+          const db = b - color.b;
+          const distSq = dr * dr + dg * dg + db * db;
+
+          if (distSq < tolSq) {
+            // キー色に近い画素を透明に
+            data[i + 3] = 0;
+          }
+        }
+
+        octx.putImageData(imageData, 0, 0);
+
+        ctx.save();
+        ctx.globalAlpha = opacity;
+        ctx.drawImage(offscreen, layout.x, layout.y, layout.width, layout.height);
+        ctx.restore();
+      } else {
+        // 通常描画
+        ctx.save();
+        ctx.globalAlpha = opacity;
+        ctx.drawImage(
+          video,
+          layout.x,
+          layout.y,
+          layout.width,
+          layout.height,
+        );
+        ctx.restore();
+      }
     }
 
     ctx.restore();
   };
 
-  // レイアウト更新
   const handleLayoutChange = (layout: SourceLayout) => {
     upsertLayout(activeScene.id, layout);
   };
 
   const handleRemoveLayout = (layoutId: string) => {
     removeLayout(activeScene.id, layoutId);
+    if (selectedLayoutId === layoutId) {
+      onSelectLayout(null);
+    }
   };
 
   return (
@@ -178,6 +250,7 @@ export const CanvasEditor: React.FC<Props> = ({
         overflow: 'hidden',
         backgroundColor: 'black',
       }}
+      onClick={() => onSelectLayout(null)}
     >
       <canvas
         ref={canvasRef}
@@ -186,55 +259,64 @@ export const CanvasEditor: React.FC<Props> = ({
         style={{ display: 'block' }}
       />
       {/* 編集用オーバーレイ */}
-      {activeScene.layouts.map(layout => (
-        <Rnd
-          key={layout.id}
-          size={{ width: layout.width, height: layout.height }}
-          position={{ x: layout.x, y: layout.y }}
-          bounds="parent"
-          onDragStop={(_, data) =>
-            handleLayoutChange({
-              ...layout,
-              x: data.x,
-              y: data.y,
-            })
-          }
-          onResizeStop={(_, __, ref, delta, position) =>
-            handleLayoutChange({
-              ...layout,
-              x: position.x,
-              y: position.y,
-              width: ref.offsetWidth,
-              height: ref.offsetHeight,
-            })
-          }
-        >
-          <div
-            style={{
-              width: '100%',
-              height: '100%',
-              border: '2px dashed rgba(255,255,255,0.6)',
-              boxSizing: 'border-box',
-              pointerEvents: 'none',
-            }}
-          />
-          <button
-            style={{
-              position: 'absolute',
-              top: 4,
-              right: 4,
-              zIndex: 10,
-              fontSize: 10,
-            }}
+      {activeScene.layouts.map(layout => {
+        const isSelected = layout.id === selectedLayoutId;
+        return (
+          <Rnd
+            key={layout.id}
+            size={{ width: layout.width, height: layout.height }}
+            position={{ x: layout.x, y: layout.y }}
+            bounds="parent"
+            onDragStop={(_, data) =>
+              handleLayoutChange({
+                ...layout,
+                x: data.x,
+                y: data.y,
+              })
+            }
+            onResizeStop={(_, __, ref, ___, position) =>
+              handleLayoutChange({
+                ...layout,
+                x: position.x,
+                y: position.y,
+                width: ref.offsetWidth,
+                height: ref.offsetHeight,
+              })
+            }
             onClick={e => {
               e.stopPropagation();
-              handleRemoveLayout(layout.id);
+              onSelectLayout(layout.id);
             }}
           >
-            ✕
-          </button>
-        </Rnd>
-      ))}
+            <div
+              style={{
+                width: '100%',
+                height: '100%',
+                border: isSelected
+                  ? '2px solid rgba(0, 150, 255, 0.9)'
+                  : '2px dashed rgba(255,255,255,0.6)',
+                boxSizing: 'border-box',
+                pointerEvents: 'auto',
+              }}
+            />
+            <button
+              style={{
+                position: 'absolute',
+                top: 4,
+                right: 4,
+                zIndex: 10,
+                fontSize: 10,
+              }}
+              onClick={e => {
+                e.stopPropagation();
+                handleRemoveLayout(layout.id);
+              }}
+            >
+              ✕
+            </button>
+          </Rnd>
+        );
+      })}
     </div>
   );
 };

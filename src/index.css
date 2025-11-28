@@ -1,45 +1,306 @@
+/* src/index.css */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
 :root {
-  color: rgba(255, 255, 255, 0.87);
-  background-color: #242424;
+  color-scheme: dark;
+
+  --bg-gradient-from: #050509;
+  --bg-gradient-to: #101020;
+  --glass-bg: rgba(15, 15, 25, 0.75);
+  --glass-border: rgba(255, 255, 255, 0.06);
+  --glass-highlight: rgba(255, 255, 255, 0.12);
+  --accent: #3b82f6; /* 青アクセント */
+  --accent-soft: rgba(59, 130, 246, 0.15);
+  --text-main: #f9fafb;
+  --text-muted: #9ca3af;
+  --danger: #ef4444;
+  --danger-soft: rgba(239, 68, 68, 0.15);
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+  --shadow-soft: 0 18px 45px rgba(0, 0, 0, 0.55);
+  --transition-fast: 150ms ease-out;
+  --transition-med: 220ms ease-out;
+  --border-subtle: 1px solid rgba(148, 163, 184, 0.12);
 }
 
-a {
-  font-weight: 500;
-  color: #646cff;
-  text-decoration: inherit;
-}
-a:hover {
-  color: #535bf2;
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  height: 100%;
 }
 
-button {
-  border-radius: 8px;
-  border: 1px solid transparent;
-  padding: 0.6em 1.2em;
-  font-size: 1em;
-  font-weight: 500;
-  font-family: inherit;
-  background-color: #1a1a1a;
+body {
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI',
+    sans-serif;
+  color: var(--text-main);
+  background:
+    radial-gradient(circle at top left, #1e293b 0, transparent 55%),
+    radial-gradient(circle at bottom right, #020617 0, transparent 60%),
+    linear-gradient(135deg, var(--bg-gradient-from), var(--bg-gradient-to));
+  background-attachment: fixed;
+}
+
+/* アプリ全体ラッパー */
+
+.app-root {
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: stretch;
+  padding: 16px;
+}
+
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  max-width: 1440px;
+  max-height: 860px;
+  margin: auto;
+}
+
+/* 上部ヘッダ（必要なら） */
+.app-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 14px;
+  border-radius: 999px;
+  background: radial-gradient(circle at 0 0, rgba(59, 130, 246, 0.24), transparent 55%),
+    var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--shadow-soft);
+  backdrop-filter: blur(20px);
+}
+
+/* メインエリア（3カラム） */
+
+.app-main {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr) 280px;
+  gap: 12px;
+}
+
+/* パネル共通：軽いリキッドグラス */
+
+.glass-panel {
+  position: relative;
+  border-radius: var(--radius-xl);
+  background: radial-gradient(circle at top left, rgba(255,255,255,0.04), transparent 45%),
+    var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--shadow-soft);
+  backdrop-filter: blur(22px) saturate(130%);
+  padding: 12px;
+  overflow: hidden;
+}
+
+.glass-panel::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(
+      135deg,
+      rgba(255, 255, 255, 0.15),
+      transparent 35%,
+      transparent 65%,
+      rgba(15, 23, 42, 0.7)
+    );
+  mix-blend-mode: soft-light;
+  opacity: 0.35;
+}
+
+/* 左・右パネルは縦スクロール可能 */
+
+.panel-scroll {
+  position: relative;
+  z-index: 1;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.panel-scroll-inner {
+  flex: 1;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+/* スクロールバーを少しだけモダンに */
+
+.panel-scroll-inner::-webkit-scrollbar {
+  width: 6px;
+}
+
+.panel-scroll-inner::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.panel-scroll-inner::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.4);
+  border-radius: 999px;
+}
+
+/* 見出し */
+
+.panel-title {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+/* ボタン類 */
+
+.btn {
+  border: none;
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 12px;
+  color: var(--text-main);
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid var(--glass-border);
   cursor: pointer;
-  transition: border-color 0.25s;
-}
-button:hover {
-  border-color: #646cff;
-}
-button:focus,
-button:focus-visible {
-  outline: 4px auto -webkit-focus-ring-color;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: transform var(--transition-fast),
+    box-shadow var(--transition-fast),
+    background-color var(--transition-fast),
+    border-color var(--transition-fast);
 }
 
-@media (prefers-color-scheme: light) {
-  :root {
-    color: #213547;
-    background-color: #ffffff;
-  }
-  a:hover {
-    color: #747bff;
-  }
-  button {
-    background-color: #f9f9f9;
-  }
+.btn:hover {
+  transform: translateY(-0.5px);
+  box-shadow: 0 12px 25px rgba(15, 23, 42, 0.7);
+  border-color: var(--glass-highlight);
+}
+
+.btn:active {
+  transform: translateY(0);
+  box-shadow: none;
+}
+
+/* アクセントボタン */
+
+.btn-accent {
+  background: radial-gradient(circle at top left, rgba(96, 165, 250, 0.7), transparent 60%),
+    var(--accent-soft);
+  border-color: rgba(96, 165, 250, 0.6);
+}
+
+.btn-accent:hover {
+  background: radial-gradient(circle at top left, rgba(96, 165, 250, 0.9), transparent 60%),
+    rgba(15, 23, 42, 0.95);
+}
+
+/* 危険系 */
+
+.btn-danger {
+  background: var(--danger-soft);
+  border-color: rgba(248, 113, 113, 0.7);
+}
+
+.btn-danger:hover {
+  background: rgba(15, 23, 42, 0.95);
+}
+
+/* 入力系 */
+
+.input,
+.textfield {
+  width: 100%;
+  border-radius: 999px;
+  border: var(--border-subtle);
+  background: rgba(15, 23, 42, 0.85);
+  color: var(--text-main);
+  font-size: 12px;
+  padding: 6px 10px;
+  outline: none;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast),
+    background-color var(--transition-fast);
+}
+
+.input:focus,
+.textfield:focus {
+  border-color: rgba(96, 165, 250, 0.8);
+  box-shadow: 0 0 0 1px rgba(96, 165, 250, 0.4);
+  background: rgba(15, 23, 42, 0.95);
+}
+
+/* ラベル */
+
+.label {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+
+/* シーンボタンのタグっぽいスタイル */
+
+.scene-chip {
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 11px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: background-color var(--transition-fast), border-color var(--transition-fast),
+    color var(--transition-fast), transform var(--transition-fast);
+}
+
+.scene-chip-active {
+  background: var(--accent-soft);
+  border-color: rgba(96, 165, 250, 0.85);
+  color: var(--text-main);
+  transform: translateY(-0.5px);
+}
+
+.scene-chip-inactive {
+  background: rgba(15, 23, 42, 0.85);
+  border-color: var(--glass-border);
+  color: var(--text-muted);
+}
+
+.scene-chip-inactive:hover {
+  background: rgba(15, 23, 42, 0.95);
+}
+
+/* 小さなラベル（右上にショートカット表示など） */
+
+.kbd {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  background: rgba(15, 23, 42, 0.9);
+}
+
+/* キャンバス部分はガラス枠だけ強め */
+
+.canvas-frame {
+  position: relative;
+  border-radius: 24px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  padding: 8px;
+  background: radial-gradient(circle at top left, rgba(148, 163, 184, 0.25), transparent 50%),
+    rgba(15, 23, 42, 0.85);
+  box-shadow: var(--shadow-soft);
+  backdrop-filter: blur(24px) saturate(140%);
 }

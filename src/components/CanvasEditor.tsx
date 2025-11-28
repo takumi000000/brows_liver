@@ -15,7 +15,9 @@ interface Props {
   sources: MediaSourceItem[];
   upsertLayout: (sceneId: string, layout: SourceLayout) => void;
   removeLayout: (sceneId: string, layoutId: string) => void;
-  canvasRefForFullscreen?: React.RefObject<HTMLDivElement>;
+
+  // ★ フルスクリーン用：キャンバスへの外部ref
+  fullscreenCanvasRef?: React.RefObject<HTMLCanvasElement>;
 
   selectedLayoutId: string | null;
   onSelectLayout: (layoutId: string | null) => void;
@@ -27,14 +29,16 @@ export const CanvasEditor: React.FC<Props> = ({
   sources,
   upsertLayout,
   removeLayout,
-  canvasRefForFullscreen,
+  fullscreenCanvasRef,
   selectedLayoutId,
   onSelectLayout,
 }) => {
   const wrapperRef = useRef<HTMLDivElement | null>(null);
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const internalCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
-  // 実際に描画しているシーン（クロスフェード用）
+  // 外から渡された ref があればそれを使い、なければ内部用を使う
+  const canvasRef = fullscreenCanvasRef ?? internalCanvasRef;
+
   const [displaySceneIndex, setDisplaySceneIndex] = React.useState(
     activeSceneIndex,
   );
@@ -44,10 +48,7 @@ export const CanvasEditor: React.FC<Props> = ({
   const transitionStartRef = useRef<number | null>(null);
   const transitionDuration = 500; // ms
 
-  // ソースID -> HTMLVideoElement
   const videoMapRef = useRef<Map<string, HTMLVideoElement>>(new Map());
-
-  // クロマキー用オフスクリーンキャンバス
   const offscreenCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const activeScene = scenes[displaySceneIndex];
@@ -60,7 +61,7 @@ export const CanvasEditor: React.FC<Props> = ({
     transitionStartRef.current = performance.now();
   }, [activeSceneIndex, displaySceneIndex]);
 
-  // sources から video 要素を準備 & ループ・音量反映
+  // sources → video 要素の準備
   useEffect(() => {
     sources.forEach(source => {
       let video = videoMapRef.current.get(source.id);
@@ -68,11 +69,10 @@ export const CanvasEditor: React.FC<Props> = ({
       if (!video) {
         video = document.createElement('video');
         video.playsInline = true;
-        video.muted = false; // 音を出す
+        video.muted = false;
         video.autoplay = true;
 
         if (source.stream) {
-          // カメラ / 画面キャプチャ
           video.srcObject = source.stream;
           video.onloadedmetadata = () => {
             video
@@ -80,7 +80,6 @@ export const CanvasEditor: React.FC<Props> = ({
               .catch(err => console.error('video play error(stream)', err));
           };
         } else if (source.fileUrl) {
-          // ローカル動画
           video.src = source.fileUrl;
           video.onloadedmetadata = () => {
             video
@@ -100,7 +99,7 @@ export const CanvasEditor: React.FC<Props> = ({
     });
   }, [sources]);
 
-  // シーン変更時：そのシーンで使っている動画だけ再生＆頭出し
+  // シーン変更時：使っている動画だけ再生＆頭出し
   useEffect(() => {
     const scene = scenes[activeSceneIndex];
     if (!scene) return;
@@ -119,7 +118,7 @@ export const CanvasEditor: React.FC<Props> = ({
 
       if (usedVideoSourceIds.has(source.id)) {
         try {
-          video.currentTime = 0; // 頭から
+          video.currentTime = 0;
         } catch (e) {
           console.warn('failed to set currentTime', e);
         }
@@ -134,7 +133,7 @@ export const CanvasEditor: React.FC<Props> = ({
     });
   }, [activeSceneIndex, scenes, sources]);
 
-  // 描画ループ（例外ガード付き）
+  // 描画ループ
   useEffect(() => {
     let animationFrameId: number;
 
@@ -147,7 +146,6 @@ export const CanvasEditor: React.FC<Props> = ({
       }
 
       try {
-        // 背景を毎フレーム黒で塗りつぶし
         ctx.fillStyle = 'black';
         ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
@@ -167,7 +165,6 @@ export const CanvasEditor: React.FC<Props> = ({
         const prevScene = prevSceneIndex != null ? scenes[prevSceneIndex] : null;
 
         if (prevScene && progress < 1) {
-          // 前シーン → 現シーンをクロスフェード
           drawSceneSafe(ctx, prevScene, sources, 1 - progress);
           drawSceneSafe(ctx, currentScene, sources, progress);
         } else {
@@ -175,7 +172,6 @@ export const CanvasEditor: React.FC<Props> = ({
         }
       } catch (e) {
         console.error('draw loop error', e);
-        // 例外が出てもループ自体は継続させる
       }
 
       animationFrameId = requestAnimationFrame(draw);
@@ -183,9 +179,8 @@ export const CanvasEditor: React.FC<Props> = ({
 
     animationFrameId = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(animationFrameId);
-  }, [scenes, displaySceneIndex, prevSceneIndex, sources]);
+  }, [scenes, displaySceneIndex, prevSceneIndex, sources, canvasRef]);
 
-  // 例外ガード付き描画
   const drawSceneSafe = (
     ctx: CanvasRenderingContext2D,
     scene: Scene,
@@ -199,7 +194,6 @@ export const CanvasEditor: React.FC<Props> = ({
     }
   };
 
-  // シーン内容の描画（クロマキー込み）
   const drawScene = (
     ctx: CanvasRenderingContext2D,
     scene: Scene,
@@ -216,7 +210,6 @@ export const CanvasEditor: React.FC<Props> = ({
     );
 
     for (const layout of sortedLayouts) {
-      // サイズが0以下のものはスキップ（例外防止）
       if (layout.width <= 0 || layout.height <= 0) continue;
 
       const source = allSources.find(s => s.id === layout.sourceId);
@@ -224,17 +217,15 @@ export const CanvasEditor: React.FC<Props> = ({
 
       const video = videoMapRef.current.get(source.id);
       if (!video) continue;
-      if (video.readyState < 2) continue; // メタデータ未読み込み
+      if (video.readyState < 2) continue;
 
       const opacity = sceneAlpha * layout.opacity;
 
-      // クロマキー + 動画ソースのときのみ
       if (layout.chromaKeyEnabled && source.type === 'video') {
         const offscreen =
           offscreenCanvasRef.current ??
           (offscreenCanvasRef.current = document.createElement('canvas'));
 
-        // 念のため try/catch で囲む
         try {
           offscreen.width = layout.width;
           offscreen.height = layout.height;
@@ -279,10 +270,8 @@ export const CanvasEditor: React.FC<Props> = ({
           ctx.restore();
         } catch (e) {
           console.error('chroma-key draw error', e);
-          // クロマキーに失敗した場合は通常描画にフォールバックしてもOK
         }
       } else {
-        // 通常描画
         ctx.save();
         ctx.globalAlpha = opacity;
         ctx.drawImage(
@@ -312,7 +301,7 @@ export const CanvasEditor: React.FC<Props> = ({
 
   return (
     <div
-      ref={canvasRefForFullscreen ?? wrapperRef}
+      ref={wrapperRef}
       style={{
         position: 'relative',
         width: CANVAS_WIDTH,
@@ -329,7 +318,7 @@ export const CanvasEditor: React.FC<Props> = ({
         height={CANVAS_HEIGHT}
         style={{ display: 'block' }}
       />
-      {/* 編集用オーバーレイ（枠のみ。✕ボタンなし） */}
+      {/* 編集用オーバーレイ：選択時のみ枠表示 */}
       {activeScene.layouts.map(layout => {
         const isSelected = layout.id === selectedLayoutId;
         return (
@@ -365,7 +354,7 @@ export const CanvasEditor: React.FC<Props> = ({
                 height: '100%',
                 border: isSelected
                   ? '2px solid rgba(0, 150, 255, 0.9)'
-                  : '2px dashed rgba(255,255,255,0.6)',
+                  : 'none',
                 boxSizing: 'border-box',
                 pointerEvents: 'auto',
               }}

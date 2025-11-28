@@ -1,4 +1,5 @@
-import React from 'react';
+// src/components/ScenePanel.tsx
+import React, { useState } from 'react';
 import { Scene } from '../types/scene';
 import { MediaSourceItem } from '../types/media';
 
@@ -7,8 +8,10 @@ interface Props {
   activeSceneIndex: number;
   setActiveSceneIndex: (index: number) => void;
   setSceneName: (sceneId: string, name: string) => void;
+
   addLayoutForSource: (sceneId: string, sourceId: string) => void;
   sources: MediaSourceItem[];
+
   onEnterFullscreen: () => void;
 }
 
@@ -21,80 +24,157 @@ export const ScenePanel: React.FC<Props> = ({
   sources,
   onEnterFullscreen,
 }) => {
-  const activeScene = scenes[activeSceneIndex];
+  const [editingSceneId, setEditingSceneId] = useState<string | null>(null);
+  const [tempName, setTempName] = useState('');
+  const [selectedSourceId, setSelectedSourceId] = useState<string>('');
 
-  const handleAddSourceToScene = (sourceId: string) => {
-    addLayoutForSource(activeScene.id, sourceId);
+  const handleStartEdit = (scene: Scene) => {
+    setEditingSceneId(scene.id);
+    setTempName(scene.name);
+  };
+
+  const handleFinishEdit = (scene: Scene) => {
+    setSceneName(scene.id, tempName || scene.name);
+    setEditingSceneId(null);
+  };
+
+  const handleAddSourceToScene = () => {
+    if (!selectedSourceId) return;
+    const activeScene = scenes[activeSceneIndex];
+    if (!activeScene) return;
+    addLayoutForSource(activeScene.id, selectedSourceId);
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      <h2 style={{ fontSize: 16, margin: 0 }}>シーン</h2>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      {/* タイトル */}
+      <div className="panel-title">シーン</div>
 
-      <div style={{ display: 'flex', gap: 4 }}>
-        {scenes.map((scene, index) => (
-          <button
-            key={scene.id}
-            onClick={() => setActiveSceneIndex(index)}
-            style={{
-              flex: 1,
-              backgroundColor:
-                index === activeSceneIndex ? '#0d47a1' : '#2a2a2a',
-              color: '#fff',
-            }}
-          >
-            {scene.name}
-          </button>
-        ))}
+      {/* シーン一覧 */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {scenes.map((scene, index) => {
+          const active = index === activeSceneIndex;
+          const isEditing = editingSceneId === scene.id;
+
+          return (
+            <div
+              key={scene.id}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+              }}
+            >
+              {/* シーンのチップ */}
+              <button
+                className={`scene-chip ${
+                  active ? 'scene-chip-active' : 'scene-chip-inactive'
+                }`}
+                onClick={() => setActiveSceneIndex(index)}
+                style={{
+                  flex: 1,
+                  justifyContent: 'flex-start',
+                  paddingInline: 10,
+                }}
+              >
+                {isEditing ? (
+                  <input
+                    className="input"
+                    style={{
+                      width: '100%',
+                      padding: '4px 8px',
+                      borderRadius: 6,
+                      fontSize: 12,
+                    }}
+                    value={tempName}
+                    autoFocus
+                    onChange={e => setTempName(e.target.value)}
+                    onBlur={() => handleFinishEdit(scene)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') handleFinishEdit(scene);
+                    }}
+                  />
+                ) : (
+                  <span
+                    style={{
+                      fontSize: 12,
+                      fontWeight: active ? 600 : 500,
+                    }}
+                  >
+                    {scene.name}
+                  </span>
+                )}
+              </button>
+
+              {/* 編集ボタン */}
+              <button
+                className="btn"
+                style={{
+                  padding: '4px 8px',
+                  borderRadius: 8,
+                  fontSize: 10,
+                  opacity: isEditing ? 0.5 : 1,
+                }}
+                disabled={isEditing}
+                onClick={() => handleStartEdit(scene)}
+              >
+                名前
+              </button>
+            </div>
+          );
+        })}
       </div>
 
-      <div style={{ fontSize: 12 }}>
-        シーン名:
-        <input
-          value={activeScene.name}
-          onChange={e => setSceneName(activeScene.id, e.target.value)}
-          style={{
-            width: '100%',
-            marginTop: 4,
-            backgroundColor: '#252525',
-            borderRadius: 4,
-            border: '1px solid #333',
-            color: '#fff',
-          }}
-        />
+      <hr style={{ borderColor: '#33415560', margin: '8px 0' }} />
+
+      {/* シーンにソースを追加：プルダウン */}
+      <div className="panel-title" style={{ marginTop: 4 }}>
+        シーンにソースを追加
       </div>
 
-      <hr style={{ borderColor: '#333' }} />
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <select
+          className="input"
+          style={{ borderRadius: 10 }}
+          value={selectedSourceId}
+          onChange={e => setSelectedSourceId(e.target.value)}
+        >
+          <option value="">ソースを選択してください</option>
+          {sources.map(src => (
+            <option key={src.id} value={src.id}>
+              {src.label}　
+              {src.type === 'screen' && '(画面)'}
+              {src.type === 'camera' && '(カメラ)'}
+              {src.type === 'video' && '(動画)'}
+            </option>
+          ))}
+        </select>
 
-      <div style={{ fontSize: 12, marginBottom: 4 }}>
-        アクティブシーンにソースを追加
+        <button
+          className="btn"
+          disabled={!selectedSourceId || sources.length === 0}
+          onClick={handleAddSourceToScene}
+        >
+          このシーンに追加
+        </button>
       </div>
-      <select
-        onChange={e => {
-          if (e.target.value) {
-            handleAddSourceToScene(e.target.value);
-            e.target.value = '';
-          }
-        }}
+
+      <hr style={{ borderColor: '#33415560', margin: '8px 0' }} />
+
+      {/* プロジェクター表示 */}
+      <button
+        className="btn btn-accent"
+        onClick={onEnterFullscreen}
         style={{
-          backgroundColor: '#252525',
-          color: '#fff',
-          borderRadius: 4,
-          border: '1px solid #333',
+          width: '100%',
+          marginTop: 4,
+          fontSize: 13,
+          padding: '8px 12px',
+          borderRadius: 12,
         }}
-        defaultValue=""
       >
-        <option value="">ソースを選択...</option>
-        {sources.map(src => (
-          <option key={src.id} value={src.id}>
-            {src.label}
-          </option>
-        ))}
-      </select>
-
-      <hr style={{ borderColor: '#333' }} />
-
-      <button onClick={onEnterFullscreen}>プロジェクター表示（全画面）</button>
+        プロジェクター表示（フルスクリーン）
+      </button>
     </div>
   );
 };

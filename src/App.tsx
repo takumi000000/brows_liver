@@ -1,4 +1,10 @@
-import React, { useRef, useMemo, useState } from 'react';
+// src/App.tsx
+import React, {
+  useRef,
+  useMemo,
+  useState,
+  useEffect,
+} from 'react';
 import { Layout } from './components/Layout';
 import { SourcePanel } from './components/SourcePanel';
 import { ScenePanel } from './components/ScenePanel';
@@ -15,7 +21,7 @@ const App: React.FC = () => {
     startCamera,
     addVideoFile,
     setVideoLoop,
-    setVideoVolume,   // ★ 追加
+    setVideoVolume,
     clearAllSources,
   } = useMediaSources();
 
@@ -30,11 +36,14 @@ const App: React.FC = () => {
     clearAllLayouts,
   } = useScenes();
 
-  const canvasWrapperRef = useRef<HTMLDivElement | null>(null);
-  const [selectedLayoutId, setSelectedLayoutId] = useState<string | null>(null);
+  // ★ フルスクリーン用にキャンバスへの ref を持つ
+  const previewCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [selectedLayoutId, setSelectedLayoutId] = useState<string | null>(
+    null,
+  );
 
   const handleEnterFullscreen = () => {
-    const el = canvasWrapperRef.current;
+    const el = previewCanvasRef.current;
     if (el && el.requestFullscreen) {
       el.requestFullscreen().catch(err => {
         console.error('Fullscreen failed', err);
@@ -53,6 +62,33 @@ const App: React.FC = () => {
     if (!selectedLayout) return undefined;
     return sources.find(s => s.id === selectedLayout.sourceId);
   }, [sources, selectedLayout]);
+
+  // 1/2/3キーでシーン切り替え
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.tagName === 'SELECT' ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+
+      if (e.key === '1' || e.key === '2' || e.key === '3') {
+        const index = Number(e.key) - 1;
+        if (index >= 0 && index < scenes.length) {
+          setActiveSceneIndex(index);
+          setSelectedLayoutId(null);
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [scenes.length, setActiveSceneIndex]);
 
   return (
     <Layout
@@ -73,7 +109,7 @@ const App: React.FC = () => {
           sources={sources}
           upsertLayout={upsertLayout}
           removeLayout={removeLayout}
-          canvasRefForFullscreen={canvasWrapperRef}
+          fullscreenCanvasRef={previewCanvasRef} // ★ ここ
           selectedLayoutId={selectedLayoutId}
           onSelectLayout={setSelectedLayoutId}
         />
@@ -103,7 +139,7 @@ const App: React.FC = () => {
             source={selectedSource}
             onChangeLayout={layout => upsertLayout(activeScene.id, layout)}
             onChangeVideoLoop={setVideoLoop}
-            onChangeVideoVolume={setVideoVolume}   // ★ ここで渡す
+            onChangeVideoVolume={setVideoVolume}
             onDeleteLayout={layoutId => {
               removeLayout(activeScene.id, layoutId);
               setSelectedLayoutId(null);

@@ -8,7 +8,7 @@ let layoutCounter = 1;
 function createDefaultScenes(): Scene[] {
   return [1, 2, 3].map(i => ({
     id: `scene-${i}`,
-    name: `Scene ${i}`,
+    name: `Scene${i}`,
     layouts: [],
   }));
 }

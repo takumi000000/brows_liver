@@ -1,7 +1,5 @@
-import React, {
-  useEffect,
-  useRef,
-} from 'react';
+// src/components/CanvasEditor.tsx
+import React, { useEffect, useRef } from 'react';
 import { Rnd } from 'react-rnd';
 import {
   CANVAS_WIDTH,
@@ -19,7 +17,6 @@ interface Props {
   removeLayout: (sceneId: string, layoutId: string) => void;
   canvasRefForFullscreen?: React.RefObject<HTMLDivElement>;
 
-  // 追加: 選択されたレイアウト
   selectedLayoutId: string | null;
   onSelectLayout: (layoutId: string | null) => void;
 }
@@ -37,7 +34,7 @@ export const CanvasEditor: React.FC<Props> = ({
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
-  // クロスフェード用
+  // 実際に描画しているシーン（クロスフェード用）
   const [displaySceneIndex, setDisplaySceneIndex] = React.useState(
     activeSceneIndex,
   );
@@ -45,16 +42,17 @@ export const CanvasEditor: React.FC<Props> = ({
     null,
   );
   const transitionStartRef = useRef<number | null>(null);
-  const transitionDuration = 500;
+  const transitionDuration = 500; // ms
 
   // ソースID -> HTMLVideoElement
   const videoMapRef = useRef<Map<string, HTMLVideoElement>>(new Map());
+
   // クロマキー用オフスクリーンキャンバス
   const offscreenCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const activeScene = scenes[displaySceneIndex];
 
-  // アクティブシーン切り替えでクロスフェード開始
+  // シーン切替時：クロスフェード開始
   useEffect(() => {
     if (activeSceneIndex === displaySceneIndex) return;
     setPrevSceneIndex(displaySceneIndex);
@@ -62,7 +60,7 @@ export const CanvasEditor: React.FC<Props> = ({
     transitionStartRef.current = performance.now();
   }, [activeSceneIndex, displaySceneIndex]);
 
-  // sources → video 要素を準備
+  // sources から video 要素を準備 & ループ・音量反映
   useEffect(() => {
     sources.forEach(source => {
       let video = videoMapRef.current.get(source.id);
@@ -70,32 +68,73 @@ export const CanvasEditor: React.FC<Props> = ({
       if (!video) {
         video = document.createElement('video');
         video.playsInline = true;
-        video.muted = true;
+        video.muted = false; // 音を出す
         video.autoplay = true;
 
         if (source.stream) {
+          // カメラ / 画面キャプチャ
           video.srcObject = source.stream;
           video.onloadedmetadata = () => {
-            video?.play().catch(err => console.error(err));
+            video
+              ?.play()
+              .catch(err => console.error('video play error(stream)', err));
           };
         } else if (source.fileUrl) {
+          // ローカル動画
           video.src = source.fileUrl;
           video.onloadedmetadata = () => {
-            video?.play().catch(err => console.error(err));
+            video
+              ?.play()
+              .catch(err => console.error('video play error(file)', err));
           };
         }
 
         videoMapRef.current.set(source.id, video);
       }
 
-      // ループ設定を同期
       if (source.type === 'video') {
         video.loop = !!source.loop;
+        video.volume = source.volume ?? 1;
+        video.muted = false;
       }
     });
   }, [sources]);
 
-  // 描画ループ
+  // シーン変更時：そのシーンで使っている動画だけ再生＆頭出し
+  useEffect(() => {
+    const scene = scenes[activeSceneIndex];
+    if (!scene) return;
+
+    const usedVideoSourceIds = new Set(
+      scene.layouts
+        .map(l => sources.find(s => s.id === l.sourceId))
+        .filter((s): s is MediaSourceItem => !!s && s.type === 'video')
+        .map(s => s.id),
+    );
+
+    sources.forEach(source => {
+      if (source.type !== 'video') return;
+      const video = videoMapRef.current.get(source.id);
+      if (!video) return;
+
+      if (usedVideoSourceIds.has(source.id)) {
+        try {
+          video.currentTime = 0; // 頭から
+        } catch (e) {
+          console.warn('failed to set currentTime', e);
+        }
+        video
+          .play()
+          .catch(err =>
+            console.error('video play error(on scene change)', err),
+          );
+      } else {
+        video.pause();
+      }
+    });
+  }, [activeSceneIndex, scenes, sources]);
+
+  // 描画ループ（例外ガード付き）
   useEffect(() => {
     let animationFrameId: number;
 
@@ -107,28 +146,36 @@ export const CanvasEditor: React.FC<Props> = ({
         return;
       }
 
-      ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+      try {
+        // 背景を毎フレーム黒で塗りつぶし
+        ctx.fillStyle = 'black';
+        ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
-      const now = time;
-      const start = transitionStartRef.current;
-      let progress = 1;
+        const now = time;
+        const start = transitionStartRef.current;
+        let progress = 1;
 
-      if (start != null && prevSceneIndex != null) {
-        progress = Math.min(1, (now - start) / transitionDuration);
-        if (progress >= 1) {
-          transitionStartRef.current = null;
-          setPrevSceneIndex(null);
+        if (start != null && prevSceneIndex != null) {
+          progress = Math.min(1, (now - start) / transitionDuration);
+          if (progress >= 1) {
+            transitionStartRef.current = null;
+            setPrevSceneIndex(null);
+          }
         }
-      }
 
-      const currentScene = scenes[displaySceneIndex];
-      const prevScene = prevSceneIndex != null ? scenes[prevSceneIndex] : null;
+        const currentScene = scenes[displaySceneIndex];
+        const prevScene = prevSceneIndex != null ? scenes[prevSceneIndex] : null;
 
-      if (prevScene && progress < 1) {
-        drawScene(ctx, prevScene, sources, 1 - progress);
-        drawScene(ctx, currentScene, sources, progress);
-      } else {
-        drawScene(ctx, currentScene, sources, 1);
+        if (prevScene && progress < 1) {
+          // 前シーン → 現シーンをクロスフェード
+          drawSceneSafe(ctx, prevScene, sources, 1 - progress);
+          drawSceneSafe(ctx, currentScene, sources, progress);
+        } else {
+          drawSceneSafe(ctx, currentScene, sources, 1);
+        }
+      } catch (e) {
+        console.error('draw loop error', e);
+        // 例外が出てもループ自体は継続させる
       }
 
       animationFrameId = requestAnimationFrame(draw);
@@ -138,13 +185,29 @@ export const CanvasEditor: React.FC<Props> = ({
     return () => cancelAnimationFrame(animationFrameId);
   }, [scenes, displaySceneIndex, prevSceneIndex, sources]);
 
-  // シーン描画（クロマキー対応）
+  // 例外ガード付き描画
+  const drawSceneSafe = (
+    ctx: CanvasRenderingContext2D,
+    scene: Scene,
+    allSources: MediaSourceItem[],
+    sceneAlpha: number,
+  ) => {
+    try {
+      drawScene(ctx, scene, allSources, sceneAlpha);
+    } catch (e) {
+      console.error('drawScene error', e);
+    }
+  };
+
+  // シーン内容の描画（クロマキー込み）
   const drawScene = (
     ctx: CanvasRenderingContext2D,
     scene: Scene,
     allSources: MediaSourceItem[],
     sceneAlpha: number,
   ) => {
+    if (!scene) return;
+
     ctx.save();
     ctx.globalAlpha = sceneAlpha;
 
@@ -153,63 +216,71 @@ export const CanvasEditor: React.FC<Props> = ({
     );
 
     for (const layout of sortedLayouts) {
+      // サイズが0以下のものはスキップ（例外防止）
+      if (layout.width <= 0 || layout.height <= 0) continue;
+
       const source = allSources.find(s => s.id === layout.sourceId);
       if (!source) continue;
 
       const video = videoMapRef.current.get(source.id);
       if (!video) continue;
-      if (video.readyState < 2) continue;
+      if (video.readyState < 2) continue; // メタデータ未読み込み
 
       const opacity = sceneAlpha * layout.opacity;
 
-      // クロマキーが有効で、動画ソースの時のみ処理
+      // クロマキー + 動画ソースのときのみ
       if (layout.chromaKeyEnabled && source.type === 'video') {
         const offscreen =
           offscreenCanvasRef.current ??
           (offscreenCanvasRef.current = document.createElement('canvas'));
 
-        offscreen.width = layout.width;
-        offscreen.height = layout.height;
-        const octx = offscreen.getContext('2d');
-        if (!octx) continue;
+        // 念のため try/catch で囲む
+        try {
+          offscreen.width = layout.width;
+          offscreen.height = layout.height;
+          const octx = offscreen.getContext('2d');
+          if (!octx) continue;
 
-        octx.clearRect(0, 0, layout.width, layout.height);
-        octx.drawImage(video, 0, 0, layout.width, layout.height);
+          octx.clearRect(0, 0, layout.width, layout.height);
+          octx.drawImage(video, 0, 0, layout.width, layout.height);
 
-        const imageData = octx.getImageData(
-          0,
-          0,
-          layout.width,
-          layout.height,
-        );
-        const data = imageData.data;
+          const imageData = octx.getImageData(
+            0,
+            0,
+            layout.width,
+            layout.height,
+          );
+          const data = imageData.data;
 
-        const color = layout.chromaKeyColor ?? { r: 0, g: 255, b: 0 };
-        const tolerance = layout.chromaKeyTolerance ?? 120;
-        const tolSq = tolerance * tolerance;
+          const color = layout.chromaKeyColor ?? { r: 0, g: 255, b: 0 };
+          const tolerance = layout.chromaKeyTolerance ?? 120;
+          const tolSq = tolerance * tolerance;
 
-        for (let i = 0; i < data.length; i += 4) {
-          const r = data[i];
-          const g = data[i + 1];
-          const b = data[i + 2];
+          for (let i = 0; i < data.length; i += 4) {
+            const r = data[i];
+            const g = data[i + 1];
+            const b = data[i + 2];
 
-          const dr = r - color.r;
-          const dg = g - color.g;
-          const db = b - color.b;
-          const distSq = dr * dr + dg * dg + db * db;
+            const dr = r - color.r;
+            const dg = g - color.g;
+            const db = b - color.b;
+            const distSq = dr * dr + dg * dg + db * db;
 
-          if (distSq < tolSq) {
-            // キー色に近い画素を透明に
-            data[i + 3] = 0;
+            if (distSq < tolSq) {
+              data[i + 3] = 0;
+            }
           }
+
+          octx.putImageData(imageData, 0, 0);
+
+          ctx.save();
+          ctx.globalAlpha = opacity;
+          ctx.drawImage(offscreen, layout.x, layout.y, layout.width, layout.height);
+          ctx.restore();
+        } catch (e) {
+          console.error('chroma-key draw error', e);
+          // クロマキーに失敗した場合は通常描画にフォールバックしてもOK
         }
-
-        octx.putImageData(imageData, 0, 0);
-
-        ctx.save();
-        ctx.globalAlpha = opacity;
-        ctx.drawImage(offscreen, layout.x, layout.y, layout.width, layout.height);
-        ctx.restore();
       } else {
         // 通常描画
         ctx.save();
@@ -258,7 +329,7 @@ export const CanvasEditor: React.FC<Props> = ({
         height={CANVAS_HEIGHT}
         style={{ display: 'block' }}
       />
-      {/* 編集用オーバーレイ */}
+      {/* 編集用オーバーレイ（枠のみ。✕ボタンなし） */}
       {activeScene.layouts.map(layout => {
         const isSelected = layout.id === selectedLayoutId;
         return (
@@ -299,21 +370,6 @@ export const CanvasEditor: React.FC<Props> = ({
                 pointerEvents: 'auto',
               }}
             />
-            <button
-              style={{
-                position: 'absolute',
-                top: 4,
-                right: 4,
-                zIndex: 10,
-                fontSize: 10,
-              }}
-              onClick={e => {
-                e.stopPropagation();
-                handleRemoveLayout(layout.id);
-              }}
-            >
-              ✕
-            </button>
           </Rnd>
         );
       })}

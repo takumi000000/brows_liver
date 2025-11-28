@@ -6,6 +6,9 @@ interface Props {
   onStartScreen: () => void;
   onStartCamera: () => void;
   onAddVideo: (file: File) => void;
+
+  onClearAllSources: () => void;
+  onClearAllLayouts: () => void;
 }
 
 export const SourcePanel: React.FC<Props> = ({
@@ -13,12 +16,25 @@ export const SourcePanel: React.FC<Props> = ({
   onStartScreen,
   onStartCamera,
   onAddVideo,
+  onClearAllSources,
+  onClearAllLayouts,
 }) => {
   const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       onAddVideo(file);
       e.target.value = '';
+    }
+  };
+
+  const handleClearAll = () => {
+    if (
+      window.confirm(
+        'すべてのソースとレイアウトを削除します。\nこの操作は元に戻せません。よろしいですか？',
+      )
+    ) {
+      onClearAllSources();
+      onClearAllLayouts();
     }
   };
 
@@ -45,6 +61,17 @@ export const SourcePanel: React.FC<Props> = ({
           onChange={handleFileChange}
         />
       </label>
+
+      <button
+        onClick={handleClearAll}
+        style={{
+          marginTop: 8,
+          backgroundColor: '#8b0000',
+          color: '#fff',
+        }}
+      >
+        すべてのソース・レイアウトを削除
+      </button>
 
       <hr style={{ borderColor: '#333' }} />
 

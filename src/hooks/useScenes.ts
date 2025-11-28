@@ -1,3 +1,4 @@
+// src/hooks/useScenes.ts
 import { useEffect, useState } from 'react';
 import { Scene, SourceLayout } from '../types/scene';
 import { loadScenes, saveScenes } from '../utils/storage';
@@ -15,7 +16,24 @@ function createDefaultScenes(): Scene[] {
 export function useScenes() {
   const [scenes, setScenes] = useState<Scene[]>(() => {
     const loaded = loadScenes();
-    return loaded ?? createDefaultScenes();
+    const initial = loaded ?? createDefaultScenes();
+
+    // ★ ここで既存レイアウトの最大番号を調べて layoutCounter を進める
+    let maxIdNum = 0;
+    initial.forEach(scene => {
+      scene.layouts.forEach(layout => {
+        const m = layout.id.match(/^layout-(\d+)$/);
+        if (m) {
+          const n = Number(m[1]);
+          if (!Number.isNaN(n)) {
+            maxIdNum = Math.max(maxIdNum, n);
+          }
+        }
+      });
+    });
+    layoutCounter = maxIdNum + 1;
+
+    return initial;
   });
 
   const [activeSceneIndex, setActiveSceneIndex] = useState(0);
@@ -74,6 +92,15 @@ export function useScenes() {
     }));
   };
 
+  const clearAllLayouts = () => {
+    setScenes(prev =>
+      prev.map(scene => ({
+        ...scene,
+        layouts: [],
+      })),
+    );
+  };
+
   return {
     scenes,
     activeSceneIndex,
@@ -82,5 +109,6 @@ export function useScenes() {
     upsertLayout,
     addLayoutForSource,
     removeLayout,
+    clearAllLayouts,
   };
 }

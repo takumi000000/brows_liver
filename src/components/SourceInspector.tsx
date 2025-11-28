@@ -1,3 +1,4 @@
+// src/components/SourceInspector.tsx
 import React from 'react';
 import { MediaSourceItem } from '../types/media';
 import { SourceLayout } from '../types/scene';
@@ -7,8 +8,11 @@ interface Props {
   source: MediaSourceItem | undefined;
   onChangeLayout: (layout: SourceLayout) => void;
   onChangeVideoLoop: (sourceId: string, loop: boolean) => void;
+  onChangeVideoVolume: (sourceId: string, volume: number) => void;
+  onDeleteLayout: (layoutId: string) => void;
 }
 
+// ★ ここが前のエラー原因。必ずこの2つを定義しておく
 function rgbToHex(r: number, g: number, b: number): string {
   const toHex = (v: number) => v.toString(16).padStart(2, '0');
   return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
@@ -29,6 +33,8 @@ export const SourceInspector: React.FC<Props> = ({
   source,
   onChangeLayout,
   onChangeVideoLoop,
+  onChangeVideoVolume,
+  onDeleteLayout,
 }) => {
   if (!layout || !source) {
     return (
@@ -75,6 +81,32 @@ export const SourceInspector: React.FC<Props> = ({
 
   const defaultHex = rgbToHex(color.r, color.g, color.b);
 
+  const handleDelete = () => {
+    if (
+      window.confirm(
+        'このシーン上の選択中ソースを削除しますか？\n（ソース自体は残るので、あとから再配置できます）',
+      )
+    ) {
+      onDeleteLayout(layout.id);
+    }
+  };
+
+  // 音量（0〜100%）
+  const volumePercent = Math.round((source.volume ?? 1) * 100);
+
+  const handleVolumeChange = (value: number) => {
+    const v = Math.max(0, Math.min(100, value));
+    onChangeVideoVolume(source.id, v / 100);
+  };
+
+  const handleMuteToggle = () => {
+    if ((source.volume ?? 1) > 0) {
+      onChangeVideoVolume(source.id, 0);
+    } else {
+      onChangeVideoVolume(source.id, 1);
+    }
+  };
+
   return (
     <div
       style={{
@@ -101,6 +133,50 @@ export const SourceInspector: React.FC<Props> = ({
         </div>
       </div>
 
+      {/* 音量コントロール（動画のみ） */}
+      {source.type === 'video' && (
+        <div
+          style={{
+            marginBottom: 8,
+            padding: 6,
+            borderRadius: 4,
+            backgroundColor: '#252525',
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              marginBottom: 4,
+            }}
+          >
+            <span>音量</span>
+            <button
+              style={{
+                fontSize: 10,
+                padding: '2px 6px',
+                borderRadius: 4,
+              }}
+              onClick={handleMuteToggle}
+            >
+              {(source.volume ?? 1) > 0 ? 'ミュート' : 'ミュート解除'}
+            </button>
+          </div>
+          <input
+            type="range"
+            min={0}
+            max={100}
+            value={volumePercent}
+            onChange={e => handleVolumeChange(Number(e.target.value))}
+            style={{ width: '100%' }}
+          />
+          <div style={{ textAlign: 'right', opacity: 0.7 }}>
+            {volumePercent}%
+          </div>
+        </div>
+      )}
+
       {/* 動画ループ */}
       {source.type === 'video' && (
         <div
@@ -124,13 +200,14 @@ export const SourceInspector: React.FC<Props> = ({
         </div>
       )}
 
-      {/* クロマキー設定（動画のみ想定だが他にも使いたければOK） */}
+      {/* クロマキー設定（動画用） */}
       {source.type === 'video' && (
         <div
           style={{
             padding: 6,
             borderRadius: 4,
             backgroundColor: '#252525',
+            marginBottom: 8,
           }}
         >
           <label
@@ -173,6 +250,18 @@ export const SourceInspector: React.FC<Props> = ({
           )}
         </div>
       )}
+
+      <button
+        onClick={handleDelete}
+        style={{
+          width: '100%',
+          backgroundColor: '#8b0000',
+          color: '#fff',
+          marginTop: 4,
+        }}
+      >
+        このソースをシーンから削除
+      </button>
     </div>
   );
 };

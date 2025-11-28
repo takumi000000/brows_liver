@@ -1,7 +1,16 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { MediaSourceItem } from '../types/media';
 
 let sourceCounter = 1;
+
+function cleanupSource(source: MediaSourceItem) {
+  if (source.stream) {
+    source.stream.getTracks().forEach(t => t.stop());
+  }
+  if (source.fileUrl) {
+    URL.revokeObjectURL(source.fileUrl);
+  }
+}
 
 export function useMediaSources() {
   const [sources, setSources] = useState<MediaSourceItem[]>([]);
@@ -53,13 +62,13 @@ export function useMediaSources() {
   const addVideoFile = (file: File) => {
     const url = URL.createObjectURL(file);
     const id = `video-${sourceCounter++}`;
-    // デフォルトはループONにしておく
     addSource({
       id,
       type: 'video',
       label: file.name,
       fileUrl: url,
-      loop: true,
+      loop: true,   // デフォルトでループON
+      volume: 1,    // ★ デフォルト音量 100%
     });
   };
 
@@ -72,11 +81,30 @@ export function useMediaSources() {
     );
   };
 
+  // ★ 動画音量更新（0〜1）
+  const setVideoVolume = (sourceId: string, volume: number) => {
+    setSources(prev =>
+      prev.map(s =>
+        s.id === sourceId && s.type === 'video' ? { ...s, volume } : s,
+      ),
+    );
+  };
+
+  // 一括削除などはそのまま
+  const clearAllSources = () => {
+    setSources(prev => {
+      prev.forEach(cleanupSource);
+      return [];
+    });
+  };
+
   return {
     sources,
     startScreenCapture,
     startCamera,
     addVideoFile,
     setVideoLoop,
+    setVideoVolume,
+    clearAllSources,
   };
 }

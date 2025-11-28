@@ -15,7 +15,10 @@ const App: React.FC = () => {
     startCamera,
     addVideoFile,
     setVideoLoop,
+    setVideoVolume,   // ★ 追加
+    clearAllSources,
   } = useMediaSources();
+
   const {
     scenes,
     activeSceneIndex,
@@ -24,11 +27,10 @@ const App: React.FC = () => {
     upsertLayout,
     addLayoutForSource,
     removeLayout,
+    clearAllLayouts,
   } = useScenes();
 
   const canvasWrapperRef = useRef<HTMLDivElement | null>(null);
-
-  // 選択中のレイアウトID
   const [selectedLayoutId, setSelectedLayoutId] = useState<string | null>(null);
 
   const handleEnterFullscreen = () => {
@@ -60,6 +62,8 @@ const App: React.FC = () => {
           onStartScreen={startScreenCapture}
           onStartCamera={startCamera}
           onAddVideo={addVideoFile}
+          onClearAllSources={clearAllSources}
+          onClearAllLayouts={clearAllLayouts}
         />
       }
       center={
@@ -99,6 +103,11 @@ const App: React.FC = () => {
             source={selectedSource}
             onChangeLayout={layout => upsertLayout(activeScene.id, layout)}
             onChangeVideoLoop={setVideoLoop}
+            onChangeVideoVolume={setVideoVolume}   // ★ ここで渡す
+            onDeleteLayout={layoutId => {
+              removeLayout(activeScene.id, layoutId);
+              setSelectedLayoutId(null);
+            }}
           />
         </div>
       }
